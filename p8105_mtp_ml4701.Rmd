@@ -60,9 +60,9 @@ The following steps are done to clean and tidy up the data:
 
 3. `eop_size_mm` is converted to numeric variable; `sex`,`eop_shape`,`age_group`, `eop_size`,`eop_visibility` and `fhp_category` are converted to factors.
 
-The resulting dataset has `r nrow(eop_df)` rows and `r ncol(eop_df)` columns. Based on the original scientific report,
+The resulting dataset has `r nrow(eop_df)` rows and `r ncol(eop_df)` columns. Based on the original scientific report, 
 
-**key variables:**
+**key variables:** 
 
 * `sex`: gender of participants, factor with 2 unordered levels `r levels(pull(eop_df,sex))`
 * `age`: age of participants, numeric variable with mean `r mean(pull(eop_df,age))` and range [`r range(pull(eop_df,age))`]
@@ -241,11 +241,12 @@ fig3+fig4
 
 ```
 
-2. From the following plot, no clear trend is seen either accross `age` and `sex` groups, or between `eop_size_mm` and `fhp_size_mm`, so EOP size may not be associated with FHP size, gender or age.
+2. From the paper, the threshold for recording the size of an EOP was set at 5 mm, so here we filtered samples with `eop_size_mm` <= 5mm. From the resulting scater plot, no clear trend is seen either accross `age` and `sex` groups, or between `eop_size_mm` and `fhp_size_mm`, so EOP size may not be associated with FHP size, gender or age.
 
 ```{r}
 eop_df %>% 
   select(age,sex,eop_size_mm,fhp_size_mm) %>% 
+  filter(eop_size_mm >= 5) %>% 
   drop_na() %>%
   filter(age >= 18) %>% 
   mutate(
@@ -267,7 +268,7 @@ eop_df %>%
     eeop = case_when(eop_size <= 1 ~ "non-EEOP",
                      eop_size > 1 ~"EEOP") ) %>%
   ggplot(aes(x = fhp_size_mm,y = eop_size_mm,color = eeop))+
-    geom_point(alpha = .6,size = 2)+
+    geom_point(alpha = .6,size = 3)+
     facet_grid(sex~age_group)+
     labs(
       subtitle= "Association between FHP size and EOP size across age and sex groups ",
@@ -277,7 +278,90 @@ eop_df %>%
 ```
 
 
+### 3 - Reproducing reported results
 
+Comparing the authors’ stated sample sizes in each age group and what we calculated from data, the sample sizes are, though similar, not identical except for `50s` groups. 
+
+```{r}
+sample_size_available = eop_df %>% 
+  filter(age >= 18) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60"))) %>% 
+  group_by(age_group) %>% 
+  summarize(size = n())
+
+tibble(
+  age_group = c("18-30 years","30s","40s","50s",">60"),
+  from_paper = c(300,200,200,200,300),
+  from_data = pull(sample_size_available,size)) %>% 
+  knitr::kable()
+```
+
+
+From the paper, mean FHP for male was 28  ±15  mm, for female 24  ±11  mm;
+
+from the data,  mean FHP for male was 28.8±14.7mm, for female 23.7±10.6mm,
+
+which are identical after rounding.
+
+```{r}
+eop_df %>% 
+  group_by(sex) %>% 
+  summarise(fhp_mean = mean(fhp_size_mm,na.rm = TRUE),
+            fhp_sd = sd(fhp_size_mm,na.rm = TRUE))
+```
+
+Definition of EEOP: EOP with size exceeded 10 mm, namely `eop_size_mm`> 10 or 
+`eop_size` > 1.
+Since internal inconsistency existed in encoding `eop_size` from `eop_size_mm`, we can validate the prevalence of EEOP using criteria `eop_size_mm`> 10 directly. The calculated prevalence is 32.1%, still similar but not identical to that reported (33%) in the paper.
+
+
+```{r}
+eeop_recalculated = eop_df %>% 
+  mutate(
+    eeop = case_when(eop_size_mm > 10 ~ 1,
+                     eop_size_mm <= 10 ~ 0))
+sum(pull(eeop_recalculated,eeop))/dim(eeop_recalculated)[1]
+```
+
+From the following plot, proportion of FHP >40 mm subjects increases with age, and the proportion within `>60` age group is 32.5%, different but close to 34.5% given in the paper. The results does show that FHP >40mm may be more common in older subjects.
+
+```{r}
+eop_df %>% 
+  filter(fhp_size_mm >40) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60"))) %>% 
+  group_by(age_group) %>% 
+  summarize(case = n()) %>% 
+  left_join(sample_size_available) %>% 
+  mutate(proportion = round(case/size,3))%>%   
+
+  ggplot(aes(x = age_group, y = proportion))+
+  geom_bar(stat = "identity",alpha = .8)+
+  geom_text(aes(label = proportion),nudge_y = 0.01)+
+  labs(
+    title = "Proportion of FHP >40 mm observed accross age groups",
+    x = "Age Group (years)",y = "Proportion")
+```
+
+
+### 4 – Discussion
+
+Summarize your results, the quality of the data analysis / presentation of results in the original report, and comment on the conclusions of the reports’ authors. Do you think the data provide evidence that cell phones are causing horn growth? What other data would you like to have to address this hypothesis?
 
 
 
@@ -287,8 +371,7 @@ wordcountaddin::text_stats("p8105_mtp_ml4701.Rmd")
 
 
 
-
-
+including factors `sex`, `age_group`, `eop_size` and `fhp_category`, among which `sex` is unordered with levels `r levels(pull(eop_df,sex))`, and the rest have ascending orders consistent with their numeric values.
 
 
 
