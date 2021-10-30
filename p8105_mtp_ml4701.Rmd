@@ -8,6 +8,7 @@ output: github_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(readxl)
+library(patchwork)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -107,7 +108,7 @@ There's some internal inconsistency within the dataset.
 1. Definitions of categorical variables was not clearly specified, especially the endpoints of the intervals to partition continuous variables. For example, definition for `eop_size` based on `eop_size_mm` was given as:
 
 | eop_size|eop_size_mm|
-|--------:|:----------|:
+|--------:|:----------|
 |0        | 0-5       |
 |1        | 5-10      |
 |2        | 10-15     |
@@ -161,14 +162,11 @@ eop_df %>%
 ```
 
 
-### 2 - Visualizatio
+### 2 - Visualization
 
-In the original scientific report, Figures 3 and 4 show data or derived quantities. Both are flawed. Figure 3 shows only the mean and standard deviation for FHP, but does not show the distribution of the underlying data. Figure 4 shows the number of participants in each age and sex group who have an enlarged EOP (based on categorical EOP Size – groups 0 and 1 vs groups 2, 3, 4, and 5). However, the number of participants in each age and sex group was controlled by the researchers, so the number with enlarged EOP in each group is not as informative as the rate of enlarged EOP in each group. Create a two-panel figure that contains improved versions of both of these.
-Although the authors are interested in how FHP size, age, and sex affect EOP size, no figure contains each of these. Create a 2 x 5 collection of panels, which show the association between FHP size and EOP size in each age and sex group.
-Comment on your plots with respect to the scientific question of interest.
+1. *Figure 3 (Improved)* displays distribution of FHP size across age and sex groups with violin plot,including major statistics quartiles and means. *Figure 4 (Improved)* shows the rate of EEOP across age and sex groups with a scatter plot.
 
-
-```{r}
+```{r, message = FALSE}
 fhp_mean = eop_df %>% 
   filter(age >= 18) %>% 
   mutate(
@@ -183,7 +181,7 @@ fhp_mean = eop_df %>%
   group_by(age_group,sex) %>% 
   summarize(fhp_mean = mean(fhp_size_mm,na.rm = TRUE))
 
-eop_df %>% 
+fig3 = eop_df %>% 
   filter(age >= 18) %>% 
   mutate(
     age_group = case_when(
@@ -195,14 +193,87 @@ eop_df %>%
     age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
                        labels = c("18-30 years","30s","40s","50s",">60"))) %>% 
   ggplot(aes(x = age_group,y = fhp_size_mm))+
-  geom_violin(aes(fill = sex),draw_quantiles =c(0.25,0.5,0.75), alpha = .5)+
-  geom_point(data = fhp_mean,aes(x = age_group, y = fhp_mean, color = sex))+
-  stat_summary(fun = "mean", color = "blue")+
+  geom_violin(aes(fill = sex),na.rm = TRUE,
+              draw_quantiles =c(0.25,0.5,0.75),
+              width = 1, position = position_dodge(), 
+              alpha = .3,size = .5)+
+  geom_point(data = fhp_mean,aes(x = age_group, y = fhp_mean,shape = sex),
+              size = 3,alpha = 1, position = position_dodge(width = 1))+
   labs(
     title= "Figure 3 (Improved). ",
-    subtitle = "Forward head protraction values across the age groups and sexes.",
+    subtitle = "Forward head protraction values \nacross the age groups and sexes.",
        x = "Age Group (years)",
        y = "Forward Head Protraction Size (mm)")
+
+fig4 = eop_df %>% 
+  filter(age >= 18) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60")),
+    eop_size = case_when(
+      eop_size_mm <= 5 ~ 0,
+      (eop_size_mm > 5 ) &(eop_size_mm <= 10) ~ 1,
+      (eop_size_mm > 10) &(eop_size_mm <= 15) ~ 2,
+      (eop_size_mm > 15) &(eop_size_mm <= 20) ~ 3,
+      (eop_size_mm > 20) &(eop_size_mm <= 25) ~ 4,
+      eop_size_mm > 25 ~ 5),
+    eeop = case_when(eop_size <= 1 ~ 0,
+                     eop_size > 1 ~1) 
+    ) %>%
+  group_by(age_group,sex) %>% 
+  summarize(group_total = n(),EEOP_count = sum(eeop),
+            rate = EEOP_count/group_total) %>% 
+  ggplot(aes(x = age_group, y = rate,group = sex,shape = sex,color = sex))+
+    geom_point(size = 3)+
+    geom_line()+
+    labs(
+      title= "Figure 4 (Improved). ",
+      subtitle = "Rate of the presence of EEOP \nacross the age groups and sexes.",
+         x = "Age Group (years)",y = "EEOP Count")
+
+fig3+fig4
+
+```
+
+2. From the following plot, no clear trend is seen either accross `age` and `sex` groups, or between `eop_size_mm` and `fhp_size_mm`, so EOP size may not be associated with FHP size, gender or age.
+
+```{r}
+eop_df %>% 
+  select(age,sex,eop_size_mm,fhp_size_mm) %>% 
+  drop_na() %>%
+  filter(age >= 18) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60")),
+    eop_size = case_when(
+      eop_size_mm <= 5 ~ 0,
+      (eop_size_mm > 5 ) &(eop_size_mm <= 10) ~ 1,
+      (eop_size_mm > 10) &(eop_size_mm <= 15) ~ 2,
+      (eop_size_mm > 15) &(eop_size_mm <= 20) ~ 3,
+      (eop_size_mm > 20) &(eop_size_mm <= 25) ~ 4,
+      eop_size_mm > 25 ~ 5),
+    eeop = case_when(eop_size <= 1 ~ "non-EEOP",
+                     eop_size > 1 ~"EEOP") ) %>%
+  ggplot(aes(x = fhp_size_mm,y = eop_size_mm,color = eeop))+
+    geom_point(alpha = .6,size = 2)+
+    facet_grid(sex~age_group)+
+    labs(
+      subtitle= "Association between FHP size and EOP size across age and sex groups ",
+         x = "FHP size (mm)",y = "EOP size (mm)",color = "EEOP status")
+
+
 ```
 
 
