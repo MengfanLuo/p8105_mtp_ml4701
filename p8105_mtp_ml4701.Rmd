@@ -1,7 +1,7 @@
 ---
-title: "case_study"
-author: "Mengfan Luo"
-date: "23/10/2021"
+title: "P8105 Midterm"
+author: "Mengfan Luo (ml4701)"
+date: "10/30/2021"
 output: github_document
 ---
 
@@ -25,5 +25,224 @@ options(
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
+
+
+### 1 - Data
+
+```{r}
+# Load and clean variable names
+eop_df = read_excel("p8105_mtp_data.xlsx",range = "A9:I1230") %>% 
+  janitor::clean_names() %>% 
+  rename(eop_visibility = eop_visibility_classification) %>% 
+  mutate(
+    eop_size_mm = str_replace_na(eop_size_mm,"0"), # Filled missing values in eop_size
+    
+    #data type conversion
+    sex = factor(sex),
+    sex = recode(sex,"0" = "female", "1" = "male"),
+    
+    age_group = fct_inseq(age_group,ordered = TRUE),
+    eop_size_mm = as.numeric(eop_size_mm),
+    eop_size = fct_inseq(eop_size,ordered = TRUE),
+    eop_visibility = fct_inseq(factor(eop_visibility),ordered = TRUE),
+    eop_shape = factor(eop_shape),
+    fhp_category = fct_inseq(fhp_category,ordered = TRUE))
+
+```
+
+
+The following steps are done to clean and tidy up the data:
+
+1. Columns names are converted to lower snake case
+
+2. Missing values in `eop_size_mm` are filled with `0` as indicated in the original dataset (Yet missing values in `eop_shape` and `fhp_size` are kept as `NA` as no such information provided).
+
+3. `eop_size_mm` is converted to numeric variable; `sex`,`eop_shape`,`age_group`, `eop_size`,`eop_visibility` and `fhp_category` are converted to factors.
+
+The resulting dataset has `r nrow(eop_df)` rows and `r ncol(eop_df)` columns. Based on the original scientific report,
+
+**key variables:**
+
+* `sex`: gender of participants, factor with 2 unordered levels `r levels(pull(eop_df,sex))`
+* `age`: age of participants, numeric variable with mean `r mean(pull(eop_df,age))` and range [`r range(pull(eop_df,age))`]
+* `age_group`: age groups divided according to decades. Has 8 ascending levels `r levels(pull(eop_df,age_group))`
+* `eop_size_mm`: size of EOP, numeric variable with mean `r mean(pull(eop_df,eop_size_mm))` and range [`r range(pull(eop_df,eop_size_mm))`]. 
+* `eop_size`: ordered factor encoded from `eop_size_mm` with 7 ascending levels `r levels(pull(eop_df,eop_size))`, where "14.6" seems to be a typo in the dataset. 
+*Note: `eop_size` > 1 (`eop_size_mm`> 10) were defined as enlarged EOP (EEOP).*
+* `fhp_size_mm`: size of FHP, numeric variable with mean `r mean(pull(eop_df,fhp_size_mm),na.rm = TRUE)` and range [`r range(pull(eop_df,fhp_size_mm),na.rm = TRUE)`], has `r sum(is.na(pull(eop_df,fhp_size_mm)))` missing values. 
+* `fhp_category`: ordered factor encoded from `fhp_size_mm` with 9 ascending levels `r levels(pull(eop_df,fhp_category))`. 
+
+**Other variables:**
+
+* `eop_visibility`: factor with 3 ordered levels `r levels(pull(eop_df,eop_visibility))`
+* `eop_shape`:  factor with 4 unordered levels `r levels(pull(eop_df,eop_shape))`, has `r sum(is.na(pull(eop_df,eop_shape)))` missing values
+
+Despite `r sum(is.na(eop_df))` missing values, most of them (`r sum(is.na(eop_df$eop_shape))`) lie in `eop_shape` and is not key variables in the paper, so a total of `r nrow(eop_df)` participants are included.
+
+The age and gender distribution are displayed with following table and plot:
+
+```{r}
+eop_df %>% 
+  mutate(age_group = recode(age_group,"1" = "<18","2" = "18-30", "3" = "31-40",
+                            "4" = "41-50", "5" = "51-60", "6" = "61-70", 
+                            "7" = "71-80", "8" = ">80")) %>% 
+  janitor::tabyl(age_group,sex) %>% 
+  knitr::kable()
+
+eop_df %>%
+  mutate(age_group = recode(age_group,"1" = "<18","2" = "18-30", "3" = "31-40",
+                            "4" = "41-50", "5" = "51-60", "6" = "61-70", 
+                            "7" = "71-80", "8" = ">80")) %>% 
+  group_by(age_group,sex) %>% 
+  ggplot(aes(x = age_group,fill = sex))+
+  geom_bar(alpha = .7, position=position_dodge())+
+  labs(title = "Gender and age distribution of Participants",
+       x = "Age group",
+       y = "Number of participants")
+```
+
+
+There's some internal inconsistency within the dataset. 
+
+1. Definitions of categorical variables was not clearly specified, especially the endpoints of the intervals to partition continuous variables. For example, definition for `eop_size` based on `eop_size_mm` was given as:
+
+| eop_size|eop_size_mm|
+|--------:|:----------|:
+|0        | 0-5       |
+|1        | 5-10      |
+|2        | 10-15     |
+|3        | 15-20     |
+|4        | 20-25     |
+|5        | 25+       |
+
+But whether dividing points (5,10...) belong to the former or latter group was not specified, which results in problems shown in the following table, that both 15 and 20 are categorized into `eop_size` == 3 (and also a classifications into 14.6)
+
+
+```{r}
+eop_df %>% 
+  select(eop_size_mm,eop_size) %>%
+  filter(eop_size_mm %in% c(15,20)) %>% 
+  knitr::kable()
+```
+
+
+2. Categorical variables in the dataset didn't correctly implement the definitions given. Some discordence between the *given categorical groups* and *recalculated groups* are shown in the following tables:
+
+```{r}
+eop_df %>% 
+  select(age,age_group) %>%
+  mutate(
+         age_group_recalculate = case_when(
+          age <= 17 ~ "1",
+          (age > 17) & (age <= 30) ~ "2",
+          (age > 30) & (age <= 40) ~ "3",
+          (age > 40) & (age <= 50) ~ "4",
+          (age > 50) & (age <= 60) ~ "5",
+          (age > 60) & (age <= 70) ~ "6",
+          (age > 70) & (age <= 80) ~ "7",
+           age > 80 ~ "8")) %>% 
+  filter(!(age_group == age_group_recalculate)) %>% 
+  knitr::kable()
+  
+
+eop_df %>% 
+  select(eop_size_mm,eop_size) %>%
+  mutate(
+         eop_size_recalculate = case_when(
+      eop_size_mm <= 5 ~ "0",
+      (eop_size_mm > 5 ) &(eop_size_mm <= 10) ~ "1",
+      (eop_size_mm > 10) &(eop_size_mm <= 15) ~ "2",
+      (eop_size_mm > 15) &(eop_size_mm <= 20) ~ "3",
+      (eop_size_mm > 20) &(eop_size_mm <= 25) ~ "4",
+      eop_size_mm > 25 ~ "5")) %>% 
+  filter(!(eop_size == eop_size_recalculate))%>% 
+  knitr::kable()
+
+```
+
+
+### 2 - Visualizatio
+
+In the original scientific report, Figures 3 and 4 show data or derived quantities. Both are flawed. Figure 3 shows only the mean and standard deviation for FHP, but does not show the distribution of the underlying data. Figure 4 shows the number of participants in each age and sex group who have an enlarged EOP (based on categorical EOP Size – groups 0 and 1 vs groups 2, 3, 4, and 5). However, the number of participants in each age and sex group was controlled by the researchers, so the number with enlarged EOP in each group is not as informative as the rate of enlarged EOP in each group. Create a two-panel figure that contains improved versions of both of these.
+Although the authors are interested in how FHP size, age, and sex affect EOP size, no figure contains each of these. Create a 2 x 5 collection of panels, which show the association between FHP size and EOP size in each age and sex group.
+Comment on your plots with respect to the scientific question of interest.
+
+
+```{r}
+fhp_mean = eop_df %>% 
+  filter(age >= 18) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60"))) %>% 
+  group_by(age_group,sex) %>% 
+  summarize(fhp_mean = mean(fhp_size_mm,na.rm = TRUE))
+
+eop_df %>% 
+  filter(age >= 18) %>% 
+  mutate(
+    age_group = case_when(
+      age <= 30 ~ "2",
+      (age > 30) &(age <= 40) ~ "3",
+      (age > 40) &(age <= 50) ~ "4",
+      (age > 50) &(age <= 60) ~ "5",
+      (age > 60)~ "6"),
+    age_group = factor(age_group, levels = c("2","3","4","5","6"),ordered = TRUE, 
+                       labels = c("18-30 years","30s","40s","50s",">60"))) %>% 
+  ggplot(aes(x = age_group,y = fhp_size_mm))+
+  geom_violin(aes(fill = sex),draw_quantiles =c(0.25,0.5,0.75), alpha = .5)+
+  geom_point(data = fhp_mean,aes(x = age_group, y = fhp_mean, color = sex))+
+  stat_summary(fun = "mean", color = "blue")+
+  labs(
+    title= "Figure 3 (Improved). ",
+    subtitle = "Forward head protraction values across the age groups and sexes.",
+       x = "Age Group (years)",
+       y = "Forward Head Protraction Size (mm)")
+```
+
+
+
+
+
+
+```{r}
+wordcountaddin::text_stats("p8105_mtp_ml4701.Rmd")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
